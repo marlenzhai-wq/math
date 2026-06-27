@@ -117,9 +117,6 @@ async def score_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"score қатесі: {e}")
 
-
-    await update.message.reply_text(help_text, parse_mode="Markdown")
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not update.effective_chat or update.effective_chat.type not in ["group", "supergroup"]:
@@ -140,7 +137,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "active": False,
                 "question": None,
                 "players": {},
-                "interval": 10 
+                "interval": 10,
+                "reminder_counter": 0,
+                "question_message_id": None
             }
         
         # Санауышты жедел жадтан тексереміз
@@ -157,6 +156,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 correct_answer = chat_data["question"]["answer"]
                 
                 if user_answer == correct_answer:
+                    # Есеп хабарламасын өшіру
+                    if chat_data.get("question_message_id"):
+                        try:
+                            await context.bot.delete_message(
+                                chat_id=chat_id,
+                                message_id=chat_data["question_message_id"]
+                            )
+                        except Exception as e:
+                            logger.error(f"Хабарламаны өшіру қатесі: {e}")
+                        chat_data["question_message_id"] = None
+                    
                     if "players" not in chat_data:
                         chat_data["players"] = {}
                         
@@ -174,6 +184,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     chat_data["active"] = False
                     chat_data["question"] = None
+                    chat_data["reminder_counter"] = 0  # Еске салу санауышын нөлге түсіру
                     save_data(data)
                     return
             except ValueError:
@@ -190,12 +201,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 q_text, q_ans = generate_math()
                 chat_data["question"] = {"question": q_text, "answer": q_ans}
                 chat_data["active"] = True
+                chat_data["reminder_counter"] = 0  # Еске салу санауышын нөлге түсіру
                 COUNTERS[chat_id] = 0  # Санауышты нөлге түсіреміз
                 
-                await update.message.reply_text(
-                    f"🧮 *МАТЕМАТИКАЛЫҚ ЕСЕП!* 🧮\n\n❓ *{q_text}*\n\n⚡ *БІРІНШІ* болып дұрыс жауап жазған адам *1 ұпай* алады!\n💡 Тек қана санды жазыңыз.",
+                # Ескі есеп хабарламасын өшіру (бар болса)
+                if chat_data.get("question_message_id"):
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=chat_id,
+                            message_id=chat_data["question_message_id"]
+                        )
+                    except Exception as e:
+                        logger.error(f"Ескі хабарламаны өшіру қатесі: {e}")
+                
+                msg = await update.message.reply_text(
+                    f"🧮 *МАТЕМАТИКАЛЫҚ ЕСЕП!* 🧮\n\n"
+                    f"❓ *{q_text}*\n\n"
+                    f"⚡ *БІРІНШІ* болып дұрыс жауап жазған адам *1 ұпай* алады!\n"
+                    f"💡 Тек қана санды жазыңыз.",
                     parse_mode="Markdown"
                 )
+                
+                chat_data["question_message_id"] = msg.message_id
                 save_data(data)
                 
     except Exception as e:
@@ -231,7 +258,14 @@ async def set_interval_command(update: Update, context: ContextTypes.DEFAULT_TYP
         data = load_data()
 
         if chat_id not in data:
-            data[chat_id] = {"active": False, "question": None, "players": {}, "interval": 10}
+            data[chat_id] = {
+                "active": False, 
+                "question": None, 
+                "players": {}, 
+                "interval": 10,
+                "reminder_counter": 0,
+                "question_message_id": None
+            }
 
         data[chat_id]["interval"] = new_interval
         save_data(data)
