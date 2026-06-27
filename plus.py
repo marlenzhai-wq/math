@@ -117,19 +117,7 @@ async def score_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"score қатесі: {e}")
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-🤖 *Математикалық боттың көмегі*
 
-📌 *Қалай жұмыс істейді?*
-• Бот әрбір *10 хабарлама* сайын математикалық есеп шығарады.
-• Есептің дұрыс жауабын *бірінші* болып жазған адам 1 ұпай алады.
-
-📊 *Командалар:*
-• `/top` - үздік 10 ойыншыны көру
-• `/score` - өз ұпайыңды көру
-• `/help` - осы көмек мәтіні
-    """
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -151,7 +139,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data[chat_id] = {
                 "active": False,
                 "question": None,
-                "players": {}
+                "players": {},
+                "interval": 10 
             }
         
         # Санауышты жедел жадтан тексереміз
@@ -195,7 +184,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             COUNTERS[chat_id] += 1
             logger.info(f"🔢 Чат [{update.effective_chat.title}]: Санауыш {COUNTERS[chat_id]}/10")
             
-            if COUNTERS[chat_id] >= 10:
+            interval = chat_data.get("interval", 10)
+
+            if COUNTERS[chat_id] >= interval:
                 q_text, q_ans = generate_math()
                 chat_data["question"] = {"question": q_text, "answer": q_ans}
                 chat_data["active"] = True
@@ -209,6 +200,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
     except Exception as e:
         logger.error(f"handle_message қатесі: {e}")
+
+async def set_interval_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if not update.effective_chat or update.effective_chat.type not in ["group", "supergroup"]:
+            return
+
+        chat_id = str(update.effective_chat.id)
+        user_id = update.effective_user.id
+
+        # аргумент тексеру
+        if not context.args:
+            await update.message.reply_text("📌 Қолдану: /setinterval 10")
+            return
+
+        try:
+            new_interval = int(context.args[0])
+            if new_interval < 1:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("❌ Дұрыс сан енгіз!")
+            return
+
+        # админ тексеру
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        if member.status not in ["administrator", "creator"]:
+            await update.message.reply_text("⛔ Бұл команданы тек админ қолдана алады!")
+            return
+
+        data = load_data()
+
+        if chat_id not in data:
+            data[chat_id] = {"active": False, "question": None, "players": {}, "interval": 10}
+
+        data[chat_id]["interval"] = new_interval
+        save_data(data)
+
+        await update.message.reply_text(f"✅ Есеп шығу интервалы өзгертілді: {new_interval} хабарлама сайын")
+
+    except Exception as e:
+        logger.error(f"set_interval қатесі: {e}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -239,7 +270,7 @@ def main():
     
     app.add_handler(CommandHandler("top", top_command))
     app.add_handler(CommandHandler("score", score_command))
-    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("setinterval", set_interval_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     logger.info("🤖 Бот сәтті іске қосылды!")
