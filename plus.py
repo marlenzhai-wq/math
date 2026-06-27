@@ -13,7 +13,7 @@ DATA_FILE = "game_data.json"
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
-    level=logging.INFO
+    level=logging.DEBUG  # DEBUG деңгейіне өзгерттік
 )
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def generate_math():
 
     elif operation == "-":
         a = random.randint(100, 10000)
-        b = random.randint(100, a)  # Теріс нәтиже шықпайды
+        b = random.randint(100, a)
         return f"{a} - {b} = ?", a - b
 
     elif operation == "*":
@@ -60,10 +60,10 @@ def generate_math():
         b = random.randint(10, 100)
         return f"{a} × {b} = ?", a * b
 
-    else:  # Бөлу
+    else:
         b = random.randint(2, 100)
         answer = random.randint(2, 200)
-        a = b * answer  # Әрқашан бүтін бөлінеді
+        a = b * answer
         return f"{a} ÷ {b} = ?", answer
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -79,12 +79,9 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
             
         players = data[chat_id]["players"]
-        # Ұпайы көп ойыншыларды сұрыптау
         sorted_players = sorted(players.items(), key=lambda x: x[1].get("score", 0), reverse=True)
         
         leaderboard = "🏆 *ТОП-10 ҮЗДІК ОЙЫНШЫ* 🏆\n\n"
-        
-        # Нақты алғашқы 10 адамды шығару (егер 10-нан аз болса, барын шығарады)
         top_10 = sorted_players[:10]
         
         for idx, (user_id, user_data) in enumerate(top_10, 1):
@@ -119,20 +116,30 @@ async def score_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        logger.debug(f"📩 Хабарлама келді: {update.message.text if update.message else 'None'}")
+        
         if not update.effective_chat or update.effective_chat.type not in ["group", "supergroup"]:
+            logger.debug(f"Чат түрі: {update.effective_chat.type if update.effective_chat else 'None'} - Өткізіп жіберілді")
             return
+            
         if update.effective_user and update.effective_user.is_bot:
+            logger.debug("Боттың хабарламасы - өткізіп жіберілді")
             return
+            
         if not update.message or not update.message.text:
+            logger.debug("Хабарлама мәтіні жоқ - өткізіп жіберілді")
             return
         
         chat_id = str(update.effective_chat.id)
         user_name = update.effective_user.first_name or "Аноним"
         message_text = update.message.text.strip()
         
+        logger.debug(f"📝 Чат {chat_id}, Пайдаланушы: {user_name}, Мәтін: {message_text}")
+        
         data = load_data()
         
         if chat_id not in data:
+            logger.info(f"🆕 Жаңа чат: {chat_id}")
             data[chat_id] = {
                 "active": False,
                 "question": None,
@@ -141,6 +148,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "reminder_counter": 0,
                 "question_message_id": None
             }
+            save_data(data)
         
         # Санауышты жедел жадтан тексереміз
         if chat_id not in COUNTERS:
@@ -148,21 +156,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         chat_data = data[chat_id]
         
+        logger.debug(f"📊 Чат деректері: active={chat_data.get('active')}, counter={COUNTERS[chat_id]}, interval={chat_data.get('interval', 10)}")
+        
         # 1. Белсенді сұрақ болса, жауапты тексеру
         if chat_data.get("active") and chat_data.get("question"):
+            logger.debug("🔍 Белсенді сұрақ бар, жауапты тексереміз")
             user_id = str(update.effective_user.id)
             try:
                 user_answer = int(message_text)
                 correct_answer = chat_data["question"]["answer"]
+                logger.debug(f"🔢 Жауап: {user_answer}, Дұрыс: {correct_answer}")
                 
                 if user_answer == correct_answer:
-                    # Есеп хабарламасын өшіру
+                    logger.info(f"✅ Дұрыс жауап! {user_name} +1 ұпай")
+                    
                     if chat_data.get("question_message_id"):
                         try:
                             await context.bot.delete_message(
                                 chat_id=chat_id,
                                 message_id=chat_data["question_message_id"]
                             )
+                            logger.debug("🗑️ Есеп хабарламасы өшірілді")
                         except Exception as e:
                             logger.error(f"Хабарламаны өшіру қатесі: {e}")
                         chat_data["question_message_id"] = None
@@ -188,36 +202,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     save_data(data)
                     return
             except ValueError:
-                # Егер сан емес болса, жай ғана өткіземіз
+                logger.debug(f"❌ Сан емес: {message_text}")
                 pass
         
         # 2. Сұрақ жоқ кезде хабарламаларды санау
-        # ЕСКЕРТУ: Егер active=True болса, бұл бөлік орындалмайды
         if not chat_data.get("active"):
             COUNTERS[chat_id] += 1
-            logger.info(f"🔢 Чат [{update.effective_chat.title}]: Санауыш {COUNTERS[chat_id]}/{chat_data.get('interval', 10)}")
-            
             interval = chat_data.get("interval", 10)
+            logger.info(f"🔢 Чат [{chat_id}]: Санауыш {COUNTERS[chat_id]}/{interval}")
 
             if COUNTERS[chat_id] >= interval:
+                logger.info(f"🎯 Интервалға жетті! Жаңа есеп шығарылады")
                 q_text, q_ans = generate_math()
                 chat_data["question"] = {"question": q_text, "answer": q_ans}
                 chat_data["active"] = True
                 chat_data["reminder_counter"] = 0
-                COUNTERS[chat_id] = 0  # Санауышты нөлге түсіреміз
+                COUNTERS[chat_id] = 0
                 
-                # Ескі есеп хабарламасын өшіру (бар болса)
                 if chat_data.get("question_message_id"):
                     try:
                         await context.bot.delete_message(
                             chat_id=chat_id,
                             message_id=chat_data["question_message_id"]
                         )
+                        logger.debug("🗑️ Ескі хабарлама өшірілді")
                     except Exception as e:
                         logger.error(f"Ескі хабарламаны өшіру қатесі: {e}")
                     chat_data["question_message_id"] = None
                 
-                # Жаңа есеп жіберу
                 msg = await update.message.reply_text(
                     f"🧮 *МАТЕМАТИКАЛЫҚ ЕСЕП!* 🧮\n\n"
                     f"❓ *{q_text}*\n\n"
@@ -229,9 +241,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_data["question_message_id"] = msg.message_id
                 save_data(data)
                 logger.info(f"✅ Жаңа есеп жіберілді: {q_text}")
+            else:
+                logger.debug(f"⏳ Әлі интервалға жетпеді: {COUNTERS[chat_id]}/{interval}")
+        else:
+            logger.debug("⏸️ Сұрақ белсенді, санауыш өткізіп жіберілді")
                 
     except Exception as e:
-        logger.error(f"handle_message қатесі: {e}")
+        logger.error(f"handle_message қатесі: {e}", exc_info=True)
 
 async def set_interval_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -241,7 +257,6 @@ async def set_interval_command(update: Update, context: ContextTypes.DEFAULT_TYP
         chat_id = str(update.effective_chat.id)
         user_id = update.effective_user.id
 
-        # аргумент тексеру
         if not context.args:
             await update.message.reply_text("📌 Қолдану: /setinterval 10")
             return
@@ -254,7 +269,6 @@ async def set_interval_command(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("❌ Дұрыс сан енгіз!")
             return
 
-        # админ тексеру
         member = await context.bot.get_chat_member(chat_id, user_id)
         if member.status not in ["administrator", "creator"]:
             await update.message.reply_text("⛔ Бұл команданы тек админ қолдана алады!")
