@@ -184,16 +184,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     chat_data["active"] = False
                     chat_data["question"] = None
-                    chat_data["reminder_counter"] = 0  # Еске салу санауышын нөлге түсіру
+                    chat_data["reminder_counter"] = 0
                     save_data(data)
                     return
             except ValueError:
+                # Егер сан емес болса, жай ғана өткіземіз
                 pass
         
         # 2. Сұрақ жоқ кезде хабарламаларды санау
+        # ЕСКЕРТУ: Егер active=True болса, бұл бөлік орындалмайды
         if not chat_data.get("active"):
             COUNTERS[chat_id] += 1
-            logger.info(f"🔢 Чат [{update.effective_chat.title}]: Санауыш {COUNTERS[chat_id]}/10")
+            logger.info(f"🔢 Чат [{update.effective_chat.title}]: Санауыш {COUNTERS[chat_id]}/{chat_data.get('interval', 10)}")
             
             interval = chat_data.get("interval", 10)
 
@@ -201,7 +203,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 q_text, q_ans = generate_math()
                 chat_data["question"] = {"question": q_text, "answer": q_ans}
                 chat_data["active"] = True
-                chat_data["reminder_counter"] = 0  # Еске салу санауышын нөлге түсіру
+                chat_data["reminder_counter"] = 0
                 COUNTERS[chat_id] = 0  # Санауышты нөлге түсіреміз
                 
                 # Ескі есеп хабарламасын өшіру (бар болса)
@@ -213,7 +215,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         )
                     except Exception as e:
                         logger.error(f"Ескі хабарламаны өшіру қатесі: {e}")
+                    chat_data["question_message_id"] = None
                 
+                # Жаңа есеп жіберу
                 msg = await update.message.reply_text(
                     f"🧮 *МАТЕМАТИКАЛЫҚ ЕСЕП!* 🧮\n\n"
                     f"❓ *{q_text}*\n\n"
@@ -224,6 +228,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 chat_data["question_message_id"] = msg.message_id
                 save_data(data)
+                logger.info(f"✅ Жаңа есеп жіберілді: {q_text}")
                 
     except Exception as e:
         logger.error(f"handle_message қатесі: {e}")
