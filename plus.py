@@ -1,0 +1,255 @@
+import logging
+import random
+import json
+import os
+import asyncio
+
+from telegram import Update
+from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
+from telegram.error import TimedOut, NetworkError, RetryAfter
+
+BOT_TOKEN = "8808436137:AAH5XHbwyFU5-MlzcXfbAqtMpefvnEjXHjQ"
+DATA_FILE = "game_data.json"
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Хабарлама санауышы файлдан өшіп қалмауы үшін жедел жадта сақтаймыз
+COUNTERS = {}
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:
+                    return {}
+                return json.loads(content)
+        except Exception as e:
+            logger.error(f"Файлды оқуда қате: {e}")
+            return {}
+    return {}
+
+def save_data(data):
+    try:
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"Файлды сақтауда қате: {e}")
+        return False
+
+def generate_math():
+    operation = random.choice(["+", "-", "*", "÷"])
+
+    if operation == "+":
+        a = random.randint(100, 10000)
+        b = random.randint(100, 10000)
+        return f"{a} + {b} = ?", a + b
+
+    elif operation == "-":
+        a = random.randint(100, 10000)
+        b = random.randint(100, a)  # Теріс нәтиже шықпайды
+        return f"{a} - {b} = ?", a - b
+
+    elif operation == "*":
+        a = random.randint(10, 200)
+        b = random.randint(10, 100)
+        return f"{a} × {b} = ?", a * b
+
+    else:  # Бөлу
+        b = random.randint(2, 100)
+        answer = random.randint(2, 200)
+        a = b * answer  # Әрқашан бүтін бөлінеді
+        return f"{a} ÷ {b} = ?", answer
+
+async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if not update.effective_chat or update.effective_chat.type not in ["group", "supergroup"]:
+            return
+        
+        chat_id = str(update.effective_chat.id)
+        data = load_data()
+        
+        if chat_id not in data or not data[chat_id].get("players"):
+            await update.message.reply_text("📊 *Әлі ешкім ұпай жинаған жоқ!*", parse_mode="Markdown")
+            return
+            
+        players = data[chat_id]["players"]
+        # Ұпайы көп ойыншыларды сұрыптау
+        sorted_players = sorted(players.items(), key=lambda x: x[1].get("score", 0), reverse=True)
+        
+        leaderboard = "🏆 *ТОП-10 ҮЗДІК ОЙЫНШЫ* 🏆\n\n"
+        
+        # Нақты алғашқы 10 адамды шығару (егер 10-нан аз болса, барын шығарады)
+        top_10 = sorted_players[:10]
+        
+        for idx, (user_id, user_data) in enumerate(top_10, 1):
+            name = user_data.get("name", "Аноним")
+            score = user_data.get("score", 0)
+            medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else "📌"
+            leaderboard += f"{medal} {idx}. *{name}* — {score} ұпай\n"
+            
+        leaderboard += f"\n📊 *Жалпы ойыншылар саны:* {len(players)}"
+        await update.message.reply_text(leaderboard, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"top қатесі: {e}")
+
+async def score_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if not update.effective_chat or update.effective_chat.type not in ["group", "supergroup"]:
+            return
+            
+        chat_id = str(update.effective_chat.id)
+        user_id = str(update.effective_user.id)
+        user_name = update.effective_user.first_name or update.effective_user.username or "Аноним"
+        
+        data = load_data()
+        if chat_id not in data or user_id not in data[chat_id].get("players", {}):
+            await update.message.reply_text(f"📊 *{user_name}*, сізде әлі ұпай жоқ.", parse_mode="Markdown")
+            return
+            
+        score = data[chat_id]["players"][user_id].get("score", 0)
+        await update.message.reply_text(f"📊 *{user_name}*!\n\n🏅 Сіздің ұпайыңыз: *{score}*", parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"score қатесі: {e}")
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """
+🤖 *Математикалық боттың көмегі*
+
+📌 *Қалай жұмыс істейді?*
+• Бот әрбір *10 хабарлама* сайын математикалық есеп шығарады.
+• Есептің дұрыс жауабын *бірінші* болып жазған адам 1 ұпай алады.
+
+📊 *Командалар:*
+• `/top` - үздік 10 ойыншыны көру
+• `/score` - өз ұпайыңды көру
+• `/help` - осы көмек мәтіні
+    """
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if not update.effective_chat or update.effective_chat.type not in ["group", "supergroup"]:
+            return
+        if update.effective_user and update.effective_user.is_bot:
+            return
+        if not update.message or not update.message.text:
+            return
+        
+        chat_id = str(update.effective_chat.id)
+        user_name = update.effective_user.first_name or "Аноним"
+        message_text = update.message.text.strip()
+        
+        data = load_data()
+        
+        if chat_id not in data:
+            data[chat_id] = {
+                "active": False,
+                "question": None,
+                "players": {}
+            }
+        
+        # Санауышты жедел жадтан тексереміз
+        if chat_id not in COUNTERS:
+            COUNTERS[chat_id] = 0
+            
+        chat_data = data[chat_id]
+        
+        # 1. Белсенді сұрақ болса, жауапты тексеру
+        if chat_data.get("active") and chat_data.get("question"):
+            user_id = str(update.effective_user.id)
+            try:
+                user_answer = int(message_text)
+                correct_answer = chat_data["question"]["answer"]
+                
+                if user_answer == correct_answer:
+                    if "players" not in chat_data:
+                        chat_data["players"] = {}
+                        
+                    if user_id not in chat_data["players"]:
+                        chat_data["players"][user_id] = {"name": user_name, "score": 0}
+                    
+                    chat_data["players"][user_id]["name"] = user_name
+                    chat_data["players"][user_id]["score"] += 1
+                    new_score = chat_data["players"][user_id]["score"]
+                    
+                    await update.message.reply_text(
+                        f"🎉 *{user_name}* 🎉\n\n✅ *ДҰРЫС ЖАУАП!*\n📝 Жауап: `{correct_answer}`\n🏆 +1 ұпай!\n📊 Жалпы ұпайыңыз: *{new_score}*",
+                        parse_mode="Markdown"
+                    )
+                    
+                    chat_data["active"] = False
+                    chat_data["question"] = None
+                    save_data(data)
+                    return
+            except ValueError:
+                pass
+        
+        # 2. Сұрақ жоқ кезде хабарламаларды санау
+        if not chat_data.get("active"):
+            COUNTERS[chat_id] += 1
+            logger.info(f"🔢 Чат [{update.effective_chat.title}]: Санауыш {COUNTERS[chat_id]}/10")
+            
+            if COUNTERS[chat_id] >= 10:
+                q_text, q_ans = generate_math()
+                chat_data["question"] = {"question": q_text, "answer": q_ans}
+                chat_data["active"] = True
+                COUNTERS[chat_id] = 0  # Санауышты нөлге түсіреміз
+                
+                await update.message.reply_text(
+                    f"🧮 *МАТЕМАТИКАЛЫҚ ЕСЕП!* 🧮\n\n❓ *{q_text}*\n\n⚡ *БІРІНШІ* болып дұрыс жауап жазған адам *1 ұпай* алады!\n💡 Тек қана санды жазыңыз.",
+                    parse_mode="Markdown"
+                )
+                save_data(data)
+                
+    except Exception as e:
+        logger.error(f"handle_message қатесі: {e}")
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if isinstance(context.error, TimedOut):
+            return
+        elif isinstance(context.error, NetworkError):
+            return
+        elif isinstance(context.error, RetryAfter):
+            await asyncio.sleep(context.error.retry_after)
+            return
+        else:
+            logger.error(f"Өңделмеген қате: {context.error}")
+    except Exception as e:
+        logger.error(f"Қате өңдегіштегі жаңа қате: {e}")
+
+def main():
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .connect_timeout(30.0)
+        .read_timeout(30.0)
+        .write_timeout(30.0)
+        .pool_timeout(30.0)
+        .build()
+    )
+    
+    app.add_error_handler(error_handler)
+    
+    app.add_handler(CommandHandler("top", top_command))
+    app.add_handler(CommandHandler("score", score_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    logger.info("🤖 Бот сәтті іске қосылды!")
+    
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=["message"],
+        poll_interval=0.5,
+        timeout=30
+    )
+
+if __name__ == "__main__":
+    main()
