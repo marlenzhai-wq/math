@@ -224,13 +224,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 2. Сұрақ жоқ кезде хабарламаларды санау
         if not chat_data.get("active"):
-           chat_data["counter"] += 1
+            chat_data["counter"] += 1
 
             interval = chat_data.get("interval", 10)
-            logger.info(f"🔢 Чат [{chat_id}]: Санауыш {COUNTERS[chat_id]}/{interval}")
+            logger.info(
+                f"🔢 Чат [{chat_id}]: Санауыш {chat_data['counter']}/{interval}"
+            )
 
             if chat_data["counter"] >= interval:
-                logger.info(f"🎯 Интервалға жетті! Жаңа есеп шығарылады")
+                logger.info("🎯 Интервалға жетті! Жаңа есеп шығарылады")
 
                 q_text, q_ans = generate_math()
 
@@ -240,7 +242,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }
 
                 chat_data["active"] = True
-                chat_data["question_time"] = time.time()  # ОСЫ ЖЕРГЕ
+                chat_data["question_time"] = time.time()
                 chat_data["reminder_counter"] = 0
                 chat_data["counter"] = 0
                 
