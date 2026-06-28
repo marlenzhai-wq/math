@@ -17,6 +17,9 @@ logging.basicConfig(
     level=logging.INFO # DEBUG деңгейіне өзгерттік
 )
 logger = logging.getLogger(__name__)
+logger.info(
+    f"🔢 Чат [{chat_id}]: Санауыш {chat_data['counter']}/{interval}"
+)
 
 # Хабарлама санауышы файлдан өшіп қалмауы үшін жедел жадта сақтаймыз
 CHAT_LOCKS = {}
