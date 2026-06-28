@@ -14,7 +14,7 @@ DATA_FILE = "game_data.json"
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
-    level=logging.INFO # DEBUG деңгейіне өзгерттік
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -117,18 +117,14 @@ async def score_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        logger.debug(f"📩 Хабарлама келді: {update.message.text if update.message else 'None'}")
         
         if not update.effective_chat or update.effective_chat.type not in ["group", "supergroup"]:
-            logger.debug(f"Чат түрі: {update.effective_chat.type if update.effective_chat else 'None'} - Өткізіп жіберілді")
             return
             
         if update.effective_user and update.effective_user.is_bot:
-            logger.debug("Боттың хабарламасы - өткізіп жіберілді")
             return
             
         if not update.message or not update.message.text:
-            logger.debug("Хабарлама мәтіні жоқ - өткізіп жіберілді")
             return
         
         chat_id = str(update.effective_chat.id)
@@ -137,7 +133,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_name = update.effective_user.first_name or "Аноним"
         message_text = update.message.text.strip()
         
-        logger.debug(f"📝 Чат {chat_id}, Пайдаланушы: {user_name}, Мәтін: {message_text}")
         
         data = load_data()
         
@@ -170,16 +165,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_data["question"] = None
             chat_data["question_time"] = 0
         
-        logger.debug(f"📊 Чат деректері: active={chat_data.get('active')}, counter={COUNTERS[chat_id]}, interval={chat_data.get('interval', 10)}")
         
         # 1. Белсенді сұрақ болса, жауапты тексеру
         if chat_data.get("active") and chat_data.get("question"):
-            logger.debug("🔍 Белсенді сұрақ бар, жауапты тексереміз")
             user_id = str(update.effective_user.id)
             try:
                 user_answer = int(message_text)
                 correct_answer = chat_data["question"]["answer"]
-                logger.debug(f"🔢 Жауап: {user_answer}, Дұрыс: {correct_answer}")
                 
                 async with CHAT_LOCKS[chat_id]:
 
@@ -224,7 +216,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     save_data(data)
                     return
             except ValueError:
-                logger.debug(f"❌ Сан емес: {message_text}")
                 pass
         
         # 2. Сұрақ жоқ кезде хабарламаларды санау
@@ -257,7 +248,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             chat_id=chat_id,
                             message_id=chat_data["question_message_id"]
                         )
-                        logger.debug("🗑️ Ескі хабарлама өшірілді")
                     except Exception as e:
                         logger.error(f"Ескі хабарламаны өшіру қатесі: {e}")
                     chat_data["question_message_id"] = None
@@ -274,9 +264,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_data(data)
                 logger.info(f"✅ Жаңа есеп жіберілді: {q_text}")
             else:
-                logger.debug(f"⏳ Әлі интервалға жетпеді: {COUNTERS[chat_id]}/{interval}")
         else:
-            logger.debug("⏸️ Сұрақ белсенді, санауыш өткізіп жіберілді")
                 
     except Exception as e:
         logger.error(f"handle_message қатесі: {e}", exc_info=True)
