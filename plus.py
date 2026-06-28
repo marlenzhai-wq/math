@@ -9,7 +9,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from telegram.error import TimedOut, NetworkError, RetryAfter
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = "8808436137:AAH5XHbwyFU5-MlzcXfbAqtMpefvnEjXHjQ"
 DATA_FILE = "game_data.json"
 
 logging.basicConfig(
