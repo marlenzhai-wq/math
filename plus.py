@@ -157,6 +157,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
        
         chat_data = data[chat_id]
+        if "counter" not in chat_data:
+            chat_data["counter"] = 0
+
+        if "question_time" not in chat_data:
+            chat_data["question_time"] = 0
         if (
             chat_data.get("active")
             and time.time() - chat_data.get("question_time", 0) > 300
