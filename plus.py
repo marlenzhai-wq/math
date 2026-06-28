@@ -178,23 +178,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 async with CHAT_LOCKS[chat_id]:
 
-                if not chat_data.get("active"):
-                    return
+                    if not chat_data.get("active"):
+                        return
 
-                if user_answer == correct_answer:
-                    logger.info(f"✅ Дұрыс жауап! {user_name} +1 ұпай")
+                    if user_answer == correct_answer:
+                        logger.info(f"✅ Дұрыс жауап! {user_name} +1 ұпай")
 
-                    if "players" not in chat_data:
-                        chat_data["players"] = {}
+                        if "players" not in chat_data:
+                            chat_data["players"] = {}
 
-                    if user_id not in chat_data["players"]:
-                        chat_data["players"][user_id] = {
-                            "name": user_name,
-                            "score": 0
-                        }
+                        if user_id not in chat_data["players"]:
+                            chat_data["players"][user_id] = {
+                                "name": user_name,
+                                "score": 0
+                            }
 
-                    chat_data["players"][user_id]["name"] = user_name
-                    chat_data["players"][user_id]["score"] += 1
+                        chat_data["players"][user_id]["name"] = user_name
+                        chat_data["players"][user_id]["score"] += 1
                     
                     
                     
