@@ -3,22 +3,23 @@ import random
 import json
 import os
 import asyncio
+import time
 
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from telegram.error import TimedOut, NetworkError, RetryAfter
 
-BOT_TOKEN = "8808436137:AAH5XHbwyFU5-MlzcXfbAqtMpefvnEjXHjQ"
+BOT_TOKEN = os.getenv("8808436137:AAH5XHbwyFU5-MlzcXfbAqtMpefvnEjXHjQ")
 DATA_FILE = "game_data.json"
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
-    level=logging.DEBUG  # DEBUG деңгейіне өзгерттік
+    level=logging.INFO # DEBUG деңгейіне өзгерттік
 )
 logger = logging.getLogger(__name__)
 
 # Хабарлама санауышы файлдан өшіп қалмауы үшін жедел жадта сақтаймыз
-COUNTERS = {}
+CHAT_LOCKS = {}
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -131,6 +132,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         chat_id = str(update.effective_chat.id)
+        if chat_id not in CHAT_LOCKS:
+            CHAT_LOCKS[chat_id] = asyncio.Lock()
         user_name = update.effective_user.first_name or "Аноним"
         message_text = update.message.text.strip()
         
@@ -146,15 +149,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "players": {},
                 "interval": 10,
                 "reminder_counter": 0,
-                "question_message_id": None
+                "question_message_id": None,
+                "counter": 0,
+                "question_time": 0
             }
             save_data(data)
         
-        # Санауышты жедел жадтан тексереміз
-        if chat_id not in COUNTERS:
-            COUNTERS[chat_id] = 0
-            
+       
         chat_data = data[chat_id]
+        if (
+            chat_data.get("active")
+            and time.time() - chat_data.get("question_time", 0) > 300
+        ):
+            chat_data["active"] = False
+            chat_data["question"] = None
+            chat_data["question_time"] = 0
         
         logger.debug(f"📊 Чат деректері: active={chat_data.get('active')}, counter={COUNTERS[chat_id]}, interval={chat_data.get('interval', 10)}")
         
@@ -167,19 +176,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 correct_answer = chat_data["question"]["answer"]
                 logger.debug(f"🔢 Жауап: {user_answer}, Дұрыс: {correct_answer}")
                 
+                async with CHAT_LOCKS[chat_id]:
+
+                if not chat_data.get("active"):
+                    return
+
                 if user_answer == correct_answer:
                     logger.info(f"✅ Дұрыс жауап! {user_name} +1 ұпай")
+
+                    if "players" not in chat_data:
+                        chat_data["players"] = {}
+
+                    if user_id not in chat_data["players"]:
+                        chat_data["players"][user_id] = {
+                            "name": user_name,
+                            "score": 0
+                        }
+
+                    chat_data["players"][user_id]["name"] = user_name
+                    chat_data["players"][user_id]["score"] += 1
                     
-                    if chat_data.get("question_message_id"):
-                        try:
-                            await context.bot.delete_message(
-                                chat_id=chat_id,
-                                message_id=chat_data["question_message_id"]
-                            )
-                            logger.debug("🗑️ Есеп хабарламасы өшірілді")
-                        except Exception as e:
-                            logger.error(f"Хабарламаны өшіру қатесі: {e}")
-                        chat_data["question_message_id"] = None
+                    
                     
                     if "players" not in chat_data:
                         chat_data["players"] = {}
@@ -207,17 +224,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 2. Сұрақ жоқ кезде хабарламаларды санау
         if not chat_data.get("active"):
-            COUNTERS[chat_id] += 1
+           chat_data["counter"] += 1
+
             interval = chat_data.get("interval", 10)
             logger.info(f"🔢 Чат [{chat_id}]: Санауыш {COUNTERS[chat_id]}/{interval}")
 
-            if COUNTERS[chat_id] >= interval:
+            if chat_data["counter"] >= interval:
                 logger.info(f"🎯 Интервалға жетті! Жаңа есеп шығарылады")
+
                 q_text, q_ans = generate_math()
-                chat_data["question"] = {"question": q_text, "answer": q_ans}
+
+                chat_data["question"] = {
+                    "question": q_text,
+                    "answer": q_ans
+                }
+
                 chat_data["active"] = True
+                chat_data["question_time"] = time.time()  # ОСЫ ЖЕРГЕ
                 chat_data["reminder_counter"] = 0
-                COUNTERS[chat_id] = 0
+                chat_data["counter"] = 0
                 
                 if chat_data.get("question_message_id"):
                     try:
