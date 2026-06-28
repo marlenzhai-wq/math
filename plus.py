@@ -241,7 +241,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_data["question_time"] = time.time()
                 chat_data["reminder_counter"] = 0
                 chat_data["counter"] = 0
-                
+
                 if chat_data.get("question_message_id"):
                     try:
                         await context.bot.delete_message(
@@ -251,7 +251,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception as e:
                         logger.error(f"Ескі хабарламаны өшіру қатесі: {e}")
                     chat_data["question_message_id"] = None
-                
+
                 msg = await update.message.reply_text(
                     f"🧮 *МАТЕМАТИКАЛЫҚ ЕСЕП!* 🧮\n\n"
                     f"❓ *{q_text}*\n\n"
@@ -259,13 +259,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"💡 Тек қана санды жазыңыз.",
                     parse_mode="Markdown"
                 )
-                
+
                 chat_data["question_message_id"] = msg.message_id
                 save_data(data)
                 logger.info(f"✅ Жаңа есеп жіберілді: {q_text}")
-            else:
-        else:
-                
+
     except Exception as e:
         logger.error(f"handle_message қатесі: {e}", exc_info=True)
 
