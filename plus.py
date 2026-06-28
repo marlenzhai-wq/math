@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Хабарлама санауышы файлдан өшіп қалмауы үшін жедел жадта сақтаймыз
+# Чаттардың құлыптау (Lock) жүйесі
 CHAT_LOCKS = {}
 
 def load_data():
@@ -117,7 +117,6 @@ async def score_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        
         if not update.effective_chat or update.effective_chat.type not in ["group", "supergroup"]:
             return
             
@@ -130,9 +129,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = str(update.effective_chat.id)
         if chat_id not in CHAT_LOCKS:
             CHAT_LOCKS[chat_id] = asyncio.Lock()
+            
         user_name = update.effective_user.first_name or "Аноним"
         message_text = update.message.text.strip()
-        
         
         data = load_data()
         
@@ -150,21 +149,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             save_data(data)
         
-       
         chat_data = data[chat_id]
         if "counter" not in chat_data:
             chat_data["counter"] = 0
 
         if "question_time" not in chat_data:
             chat_data["question_time"] = 0
-        if (
-            chat_data.get("active")
-            and time.time() - chat_data.get("question_time", 0) > 300
-        ):
+            
+        # Сұрақтың уақыты өтіп кетсе (5 минут = 300 секунд) жауып тастау
+        if chat_data.get("active") and time.time() - chat_data.get("question_time", 0) > 300:
             chat_data["active"] = False
             chat_data["question"] = None
             chat_data["question_time"] = 0
-        
+            save_data(data)
         
         # 1. Белсенді сұрақ болса, жауапты тексеру
         if chat_data.get("active") and chat_data.get("question"):
@@ -173,12 +170,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_answer = int(message_text)
                 correct_answer = chat_data["question"]["answer"]
                 
-                async with CHAT_LOCKS[chat_id]:
+                if user_answer == correct_answer:
+                    async with CHAT_LOCKS[chat_id]:
+                        # Lock ішінде деректерді қайта оқимыз (жарыс сәтін болдырмау үшін)
+                        data = load_data()
+                        chat_data = data.get(chat_id, chat_data)
 
-                    if not chat_data.get("active"):
-                        return
+                        if not chat_data.get("active"):
+                            return
 
-                    if user_answer == correct_answer:
                         logger.info(f"✅ Дұрыс жауап! {user_name} +1 ұпай")
 
                         if "players" not in chat_data:
@@ -192,28 +192,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                         chat_data["players"][user_id]["name"] = user_name
                         chat_data["players"][user_id]["score"] += 1
-                    
-                    
-                    
-                    if "players" not in chat_data:
-                        chat_data["players"] = {}
+                        new_score = chat_data["players"][user_id]["score"]
                         
-                    if user_id not in chat_data["players"]:
-                        chat_data["players"][user_id] = {"name": user_name, "score": 0}
-                    
-                    chat_data["players"][user_id]["name"] = user_name
-                    chat_data["players"][user_id]["score"] += 1
-                    new_score = chat_data["players"][user_id]["score"]
-                    
+                        chat_data["active"] = False
+                        chat_data["question"] = None
+                        chat_data["reminder_counter"] = 0
+                        
+                        save_data(data)
+
                     await update.message.reply_text(
                         f"🎉 *{user_name}* 🎉\n\n✅ *ДҰРЫС ЖАУАП!*\n📝 Жауап: `{correct_answer}`\n🏆 +1 ұпай!\n📊 Жалпы ұпайыңыз: *{new_score}*",
                         parse_mode="Markdown"
                     )
-                    
-                    chat_data["active"] = False
-                    chat_data["question"] = None
-                    chat_data["reminder_counter"] = 0
-                    save_data(data)
                     return
             except ValueError:
                 pass
@@ -221,11 +211,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 2. Сұрақ жоқ кезде хабарламаларды санау
         if not chat_data.get("active"):
             chat_data["counter"] += 1
-
             interval = chat_data.get("interval", 10)
-            logger.info(
-                f"🔢 Чат [{chat_id}]: Санауыш {chat_data['counter']}/{interval}"
-            )
+            logger.info(f"🔢 Чат [{chat_id}]: Санауыш {chat_data['counter']}/{interval}")
+            
+            # Санауыш өзгерген сайын файлға міндетті түрде сақтаймыз
+            save_data(data)
 
             if chat_data["counter"] >= interval:
                 logger.info("🎯 Интервалға жетті! Жаңа есеп шығарылады")
@@ -314,9 +304,7 @@ async def set_interval_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     try:
-        if isinstance(context.error, TimedOut):
-            return
-        elif isinstance(context.error, NetworkError):
+        if isinstance(context.error, TimedOut) or isinstance(context.error, NetworkError):
             return
         elif isinstance(context.error, RetryAfter):
             await asyncio.sleep(context.error.retry_after)
