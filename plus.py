@@ -243,10 +243,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_data["question_message_id"] = None
 
                 msg = await update.message.reply_text(
-                    f"🧮 *МАТЕМАТИКАЛЫҚ ЕСЕП!* 🧮\n\n"
-                    f"❓ *{q_text}*\n\n"
-                    f"⚡ *БІРІНШІ* болып дұрыс жауап жазған адам *1 ұпай* алады!\n"
-                    f"💡 Тек қана санды жазыңыз.",
+                    f"Математикалық есептің дұрыс жауабын жаз\n"
+                    f"📝 {q_text}",
                     parse_mode="Markdown"
                 )
 
